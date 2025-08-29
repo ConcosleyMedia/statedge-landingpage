@@ -16,35 +16,62 @@ export function WhopAccessButton({ level, className, children }: WhopAccessButto
   const { user, isLoading } = useWhop()
   const [debugInfo, setDebugInfo] = useState<string>('')
   const [isEmbedded, setIsEmbedded] = useState(false)
+  const [clickCount, setClickCount] = useState(0)
 
   useEffect(() => {
     // Detect if we're in an iframe
     const inIframe = window !== window.top
     setIsEmbedded(inIframe)
     
-    // Debug logging
-    console.log('Whop Context:', {
+    // More comprehensive debug logging
+    const debugData = {
       isEmbedded: inIframe,
       user,
       isLoading,
       level,
+      userAgent: navigator.userAgent,
+      location: window.location.href,
+      parent: window.parent !== window ? 'EXISTS' : 'SAME',
+      top: window.top !== window ? 'EXISTS' : 'SAME',
       env: {
         FREE_EXPERIENCE_ID: process.env.NEXT_PUBLIC_FREE_EXPERIENCE_ID,
         PREMIUM_EXPERIENCE_ID: process.env.NEXT_PUBLIC_PREMIUM_EXPERIENCE_ID,
         PLUS_UPGRADE_URL: process.env.NEXT_PUBLIC_PLUS_UPGRADE_URL,
       }
-    })
+    }
     
-    setDebugInfo(`Embedded: ${inIframe}, User: ${user?.id || 'None'}, Loading: ${isLoading}`)
+    console.log('🔍 Whop Debug Context:', debugData)
+    
+    setDebugInfo(`${inIframe ? 'IFRAME' : 'STANDALONE'} | User: ${user?.id || 'None'} | ${isLoading ? 'LOADING' : 'READY'}`)
+    
+    // Test postMessage communication
+    if (inIframe && window.parent) {
+      console.log('🟡 Testing postMessage communication...')
+      try {
+        window.parent.postMessage({ type: 'WHOP_TEST', level }, '*')
+      } catch (e) {
+        console.log('🔴 postMessage failed:', e)
+      }
+    }
   }, [user, isLoading, level])
 
   const handleClick = async () => {
+    const newClickCount = clickCount + 1
+    setClickCount(newClickCount)
+    
+    console.log(`🚀 BUTTON CLICK #${newClickCount}:`, { 
+      level, 
+      user, 
+      isEmbedded, 
+      isLoading,
+      timestamp: new Date().toISOString()
+    })
+
     if (isLoading) {
-      console.log('Still loading, skipping click')
+      console.log('⏳ Still loading Whop SDK, skipping click')
+      alert('Still loading, please wait...')
       return
     }
-
-    console.log('Button clicked:', { level, user, isEmbedded })
 
     try {
       const experienceIds = {
@@ -54,45 +81,133 @@ export function WhopAccessButton({ level, className, children }: WhopAccessButto
       }
 
       const targetUrl = experienceIds[level]
-      console.log('Target URL:', targetUrl)
+      console.log('🎯 Target URL:', targetUrl)
 
       if (!targetUrl) {
-        console.error('No target URL found for level:', level)
+        console.error('❌ No target URL found for level:', level)
+        alert(`ERROR: No URL configured for ${level} tier`)
         return
       }
 
+      // Show user confirmation in embedded context
       if (isEmbedded) {
-        // In iframe context, try different navigation strategies
+        const confirmed = confirm(`Navigate to ${level} content?\n\nURL: ${targetUrl}\nClick OK to continue.`)
+        if (!confirmed) {
+          console.log('🚫 User cancelled navigation')
+          return
+        }
+      }
+
+      console.log('🔄 Attempting navigation...')
+
+      if (isEmbedded) {
+        console.log('📱 IFRAME CONTEXT - Trying multiple navigation methods...')
+        
         if (level === 'plus') {
-          // For Plus tier upgrade, try parent window navigation
-          try {
-            if (window.parent && window.parent !== window) {
-              window.parent.location.href = targetUrl
-            } else {
-              window.top!.location.href = targetUrl
+          // For Plus tier upgrade, try different methods
+          const methods = [
+            () => {
+              console.log('Method 1: window.parent.location.href')
+              if (window.parent && window.parent !== window) {
+                window.parent.location.href = targetUrl
+                return true
+              }
+              return false
+            },
+            () => {
+              console.log('Method 2: window.top.location.href')
+              if (window.top && window.top !== window) {
+                window.top.location.href = targetUrl
+                return true
+              }
+              return false
+            },
+            () => {
+              console.log('Method 3: postMessage to parent')
+              if (window.parent) {
+                window.parent.postMessage({ 
+                  type: 'NAVIGATE', 
+                  url: targetUrl,
+                  level: level 
+                }, '*')
+                return true
+              }
+              return false
+            },
+            () => {
+              console.log('Method 4: window.location.href (current frame)')
+              window.location.href = targetUrl
+              return true
             }
-          } catch (e) {
-            console.log('Parent navigation failed, using fallback:', e)
-            window.location.href = targetUrl
+          ]
+          
+          for (let i = 0; i < methods.length; i++) {
+            try {
+              console.log(`🔄 Trying navigation method ${i + 1}...`)
+              if (methods[i]()) {
+                console.log(`✅ Method ${i + 1} succeeded`)
+                break
+              }
+            } catch (e) {
+              console.log(`❌ Method ${i + 1} failed:`, e)
+            }
           }
         } else {
           // For free/premium experiences, construct proper Whop URLs
           const whopUrl = `https://whop.com/experiences/${targetUrl}`
-          console.log('Navigating to experience:', whopUrl)
+          console.log('🎪 Navigating to Whop experience:', whopUrl)
           
-          try {
-            // Try parent window navigation first
-            if (window.parent && window.parent !== window) {
-              window.parent.location.href = whopUrl
-            } else {
-              window.top!.location.href = whopUrl
+          const methods = [
+            () => {
+              console.log('Experience Method 1: parent.location')
+              if (window.parent && window.parent !== window) {
+                window.parent.location.href = whopUrl
+                return true
+              }
+              return false
+            },
+            () => {
+              console.log('Experience Method 2: top.location')
+              if (window.top && window.top !== window) {
+                window.top.location.href = whopUrl
+                return true
+              }
+              return false
+            },
+            () => {
+              console.log('Experience Method 3: postMessage')
+              if (window.parent) {
+                window.parent.postMessage({ 
+                  type: 'NAVIGATE', 
+                  url: whopUrl,
+                  level: level,
+                  experienceId: targetUrl
+                }, '*')
+                return true
+              }
+              return false
+            },
+            () => {
+              console.log('Experience Method 4: current window')
+              window.location.href = whopUrl
+              return true
             }
-          } catch (e) {
-            console.log('Parent navigation failed, using current window:', e)
-            window.location.href = whopUrl
+          ]
+          
+          for (let i = 0; i < methods.length; i++) {
+            try {
+              console.log(`🔄 Trying experience method ${i + 1}...`)
+              if (methods[i]()) {
+                console.log(`✅ Experience method ${i + 1} succeeded`)
+                break
+              }
+            } catch (e) {
+              console.log(`❌ Experience method ${i + 1} failed:`, e)
+            }
           }
         }
       } else {
+        console.log('🌐 STANDALONE CONTEXT - Using window.open')
         // Not embedded, use window.open (original behavior)
         if (level === 'plus') {
           window.open(targetUrl, '_blank')
@@ -101,7 +216,8 @@ export function WhopAccessButton({ level, className, children }: WhopAccessButto
         }
       }
     } catch (error) {
-      console.error('Error handling access:', error)
+      console.error('💥 CRITICAL ERROR in navigation:', error)
+      alert(`Navigation failed: ${error.message}`)
       
       // Ultimate fallback - try direct navigation
       const fallbackUrls = {
@@ -112,6 +228,7 @@ export function WhopAccessButton({ level, className, children }: WhopAccessButto
       
       const fallbackUrl = fallbackUrls[level]
       if (fallbackUrl) {
+        console.log('🆘 FALLBACK: Direct window navigation')
         window.location.href = fallbackUrl
       }
     }
@@ -123,7 +240,7 @@ export function WhopAccessButton({ level, className, children }: WhopAccessButto
         onClick={handleClick}
         disabled={isLoading}
         className={className}
-        title={debugInfo}
+        title={`${debugInfo} | Clicks: ${clickCount}`}
       >
         {children}
         {!isLoading && (
@@ -134,11 +251,13 @@ export function WhopAccessButton({ level, className, children }: WhopAccessButto
         )}
       </button>
       
-      {process.env.NODE_ENV === 'development' && (
-        <div className="text-xs text-white/40 mt-1">
-          {debugInfo}
-        </div>
-      )}
+      {/* Always show debug info for troubleshooting */}
+      <div className="text-xs text-white/60 mt-1 p-2 bg-black/20 rounded">
+        <div>🔍 {debugInfo}</div>
+        <div>🎯 Level: {level}</div>
+        <div>👆 Clicks: {clickCount}</div>
+        <div>🌐 URL: {window.location.href}</div>
+      </div>
     </div>
   )
 }
